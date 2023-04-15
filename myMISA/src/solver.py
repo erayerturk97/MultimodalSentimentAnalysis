@@ -198,7 +198,9 @@ class Solver(object):
             
 
         with torch.no_grad():
-
+            
+            num_batches = len(dataloader)
+            num_batch_noise_added = 0 
             for batch in dataloader:
                 self.model.zero_grad()
                 t, v, a, y, l, bert_sent, bert_sent_type, bert_sent_mask = batch
@@ -212,7 +214,17 @@ class Solver(object):
                 bert_sent_type = to_gpu(bert_sent_type, on_cpu=not cuda)
                 bert_sent_mask = to_gpu(bert_sent_mask, on_cpu=not cuda)
 
-                y_tilde = self.model(t, v, a, l, bert_sent, bert_sent_type, bert_sent_mask)
+                if self.train_config.add_noise:
+                    if num_batch_noise_added < num_batches * self.train_config.add_noise_batch_per:
+                        num_batch_noise_added += 1
+                        add_noise = True
+                    else:
+                        add_noise = False
+                else:
+                    add_noise = False
+
+                y_tilde = self.model(t, v, a, l, bert_sent, bert_sent_type, bert_sent_mask, add_noise=add_noise)
+
 
                 if self.train_config.data == "ur_funny":
                     y = y.squeeze()

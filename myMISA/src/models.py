@@ -174,7 +174,7 @@ class MISA(nn.Module):
 
         return final_h1, final_h2
 
-    def alignment(self, sentences, visual, acoustic, lengths, bert_sent, bert_sent_type, bert_sent_mask):
+    def alignment(self, sentences, visual, acoustic, lengths, bert_sent, bert_sent_type, bert_sent_mask, add_noise=False):
         batch_size = lengths.size(0)
         if self.config.text_encoder == 'glove':
             # extract features from text modality
@@ -207,6 +207,11 @@ class MISA(nn.Module):
         # extract features from acoustic modality
         final_h1a, final_h2a = self.extract_features(acoustic, lengths, self.arnn1, self.arnn2, self.alayer_norm)
         utterance_audio = torch.cat((final_h1a, final_h2a), dim=2).permute(1, 0, 2).contiguous().view(batch_size, -1)
+
+        if add_noise:
+            utterance_text += torch.normal(mean=0, std=self.config.noise_cov_scale, size=utterance_text.shape)
+            utterance_video += torch.normal(mean=0, std=self.config.noise_cov_scale, size=utterance_text.shape)
+            utterance_audio += torch.normal(mean=0, std=self.config.noise_cov_scale, size=utterance_text.shape)
 
         # Shared-private encoders
         self.shared_private(utterance_text, utterance_video, utterance_audio)
@@ -265,7 +270,7 @@ class MISA(nn.Module):
         self.utt_shared_v = self.shared(utterance_v)
         self.utt_shared_a = self.shared(utterance_a)
 
-    def forward(self, sentences, video, acoustic, lengths, bert_sent, bert_sent_type, bert_sent_mask):
+    def forward(self, sentences, video, acoustic, lengths, bert_sent, bert_sent_type, bert_sent_mask, add_noise=False):
         batch_size = lengths.size(0)
         o = self.alignment(sentences, video, acoustic, lengths, bert_sent, bert_sent_type, bert_sent_mask)
         return o

@@ -8,9 +8,9 @@ from datetime import datetime
 from collections import defaultdict
 
 if 'win' in sys.platform:
-    PROJECT_DIR = 'C:/Users/Eray/Desktop/Courses/CSCI535/Project' 
+    PROJECT_DIR = 'C:/Users/Eray/Desktop/Courses/CSCI535/Project/MultimodalSentimentAnalysis' 
 else:
-    PROJECT_DIR = '/scratch2/eerturk/CSCI535/Project'
+    PROJECT_DIR = '/scratch2/eerturk/CSCI535/Project/MultimodalSentimentAnalysis'
 
 # path to a pretrained word embedding file
 word_emb_path = f'{PROJECT_DIR}/datasets/glove.840B.300d.txt'

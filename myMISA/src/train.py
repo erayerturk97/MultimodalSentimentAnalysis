@@ -15,8 +15,11 @@ from torch.nn import functional as F
 if __name__ == '__main__':
     print(torch.cuda.is_available())
     parser = argparse.ArgumentParser(description='MISA Parser')
-    parser.add_argument('--text_encoder', type=str, default='bert', help='Text encoder, choose from glove, bert, deberta and roberta')
+    parser.add_argument('--text_encoder', type=str, default='glove', help='Text encoder, choose from glove, bert, deberta and roberta')
     parser.add_argument('--data', type=str, default='mosi', help='Dataset to MISA on, choose from mosi or mosei')
+    parser.add_argument('--add_noise', required=False, default=False, action='store_true', help='Adds noise to representations')
+    parser.add_argument('--noise_cov_scale', type=float, default=1, action='store_true', help='Noise covariance added to the representations')
+    parser.add_argument('--add_noise_batch_per', type=float, default=0.3, action='store_true', help='Percentage of test batches which noise will be added')
 
     args = parser.parse_args()
     args_dict = vars(args)
@@ -47,7 +50,7 @@ if __name__ == '__main__':
     # Creating pytorch dataloaders
     train_data_loader = get_loader(train_config, shuffle = True)
     dev_data_loader = get_loader(dev_config, shuffle = False)
-    test_data_loader = get_loader(test_config, shuffle = False)
+    test_data_loader = get_loader(test_config, shuffle = True) # False
 
     # Solver is a wrapper for model training and testing
     solver = Solver
