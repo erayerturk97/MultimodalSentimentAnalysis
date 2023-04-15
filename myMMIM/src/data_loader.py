@@ -1,4 +1,4 @@
-import os
+import os, sys
 import re
 import random
 import numpy as np
@@ -11,10 +11,13 @@ from torch.nn.utils.rnn import pad_sequence, pack_padded_sequence, pad_packed_se
 from torch.utils.data import DataLoader, Dataset
 from transformers import AutoTokenizer
 
+sys.path.append( r"C:\Users\slfgh\cs_535_project\CMU-MultimodalSDK" )
+sys.path.append( r"/scratch1/yciftci/cs535project/CMU-MultimodalSDK" )
+
 from mmsdk import mmdatasdk as md
 from create_dataset import MOSI, MOSEI, PAD, UNK
 
-bert_tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased", do_lower_case=True)
+bert_tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased", do_lower_case=True)   # burasi erayin dataloaderindan farkli
 roberta_tokenizer = AutoTokenizer.from_pretrained("roberta-large")
 deberta_tokenizer = AutoTokenizer.from_pretrained("microsoft/deberta-v3-large")
 
@@ -31,11 +34,14 @@ class MSADataset(Dataset):
             print("Dataset not defined correctly")
             exit()
         
-        self.data, self.word2id, _ = dataset.get_data(config.mode)
+        self.data, self.word2id, self.pretrained_emb = dataset.get_data(config.mode)
         self.len = len(self.data)
 
+        config.visual_size = self.data[0][0][1].shape[1]
+        config.acoustic_size = self.data[0][0][2].shape[1]
+
         config.word2id = self.word2id
-        # config.pretrained_emb = self.pretrained_emb
+        config.pretrained_emb = self.pretrained_emb
 
     @property
     def tva_dim(self):
@@ -45,7 +51,15 @@ class MSADataset(Dataset):
             t_dim = 1024
         elif self.config.bert_model == "deberta":
             t_dim = 1024
-
+        elif self.config.bert_model == "glove":
+            t_dim = 768
+            print('----------------------------------------------')
+            print('----------------------------------------------')
+            print('----------------------------------------------')
+            print('config.bert_model == "glove" and def tva_dim(self): is used ')
+            print('----------------------------------------------')
+            print('----------------------------------------------')
+            print('----------------------------------------------')
         return t_dim, self.data[0][0][1].shape[1], self.data[0][0][2].shape[1]
 
     def __getitem__(self, index):
@@ -55,14 +69,14 @@ class MSADataset(Dataset):
         return self.len
 
 
-def get_loader(hp, config, shuffle=True):
+def get_loader(hp, config, use_cuda, shuffle=True):
     """Load DataLoader of given DialogDataset"""
 
     dataset = MSADataset(config)
 
     if "mosi" in str(config.data_dir).lower():
         DATASET = md.cmu_mosi
-    else:
+    elif "mosei" in str(config.data_dir).lower():
         DATASET = md.cmu_mosei
     train_split = DATASET.standard_folds.standard_train_fold
     dev_split = DATASET.standard_folds.standard_valid_fold
@@ -74,7 +88,7 @@ def get_loader(hp, config, shuffle=True):
     
     if config.mode == "train":
         hp.n_train = len(dataset)
-    elif config.mode == "valid":
+    elif config.mode == "dev":
         hp.n_valid = len(dataset)
     elif config.mode == "test":
         hp.n_test = len(dataset)
@@ -133,75 +147,66 @@ def get_loader(hp, config, shuffle=True):
                     out_tensor[:length, i, ...] = tensor
             return out_tensor
 
-        sentences = pad_sequence([torch.LongTensor(sample[0][0]) for sample in batch],padding_value=PAD)
-        visual = pad_sequence([torch.FloatTensor(sample[0][1]) for sample in batch], target_len=vlens.max().item())
-        acoustic = pad_sequence([torch.FloatTensor(sample[0][2]) for sample in batch],target_len=alens.max().item())
+        sentences = pad_sequence([torch.tensor(sample[0][0]) for sample in batch],padding_value=PAD)
+        visual = pad_sequence([torch.tensor(sample[0][1]) for sample in batch], target_len=vlens.max().item())
+        acoustic = pad_sequence([torch.tensor(sample[0][2]) for sample in batch],target_len=alens.max().item())
 
-        if config.bert_model == "bert":
-            SENT_LEN = 50
+        if config.text_encoder in ['bert', 'glove']:
+            SENT_LEN = sentences.size(0)
             # Create bert indices using tokenizer
             bert_details = []
             for sample in batch:
                 text = " ".join(sample[0][3])
                 encoded_bert_sent = bert_tokenizer.encode_plus(
-                    text, max_length=SENT_LEN, add_special_tokens=True, truncation=True, padding="max_length")
+                    text, max_length=SENT_LEN+2, add_special_tokens=True, truncation=True, padding="max_length")
                 bert_details.append(encoded_bert_sent)
 
             # Bert things are batch_first
-            bert_sentences = torch.LongTensor([sample["input_ids"] for sample in bert_details])
-            bert_sentence_types = torch.LongTensor([sample["token_type_ids"] for sample in bert_details])
-            bert_sentence_att_mask = torch.LongTensor([sample["attention_mask"] for sample in bert_details])
+            bert_sentences = torch.tensor([sample["input_ids"] for sample in bert_details])
+            bert_sentence_types = torch.tensor([sample["token_type_ids"] for sample in bert_details])
+            bert_sentence_att_mask = torch.tensor([sample["attention_mask"] for sample in bert_details])
 
-            # lengths are useful later in using RNNs
-            lengths = torch.LongTensor([len(sample[0][0]) for sample in batch])
-            if (vlens <= 0).sum() > 0:
-                vlens[np.where(vlens == 0)] = 1
-
-            return sentences, visual, vlens, acoustic, alens, labels, lengths, bert_sentences, bert_sentence_types, bert_sentence_att_mask, ids
-        else:
-            # get raw text
+        elif config.text_encoder == 'roberta':
             text_list = []
-            if "mosi" in str(config.data_dir).lower():
-                for sample in batch:
-                    segment = sample[2]
-                    vid = "_".join(segment.split("_")[:-1])
-                    if vid in train_split:
-                        split = "train"
-                    elif vid in dev_split:
-                        split = "val"
-                    elif vid in test_split:
-                        split = "test"
-                    file = open(os.path.join("/home/ICT2000/yin/emnlp/data/CMU-MOSI/text", split, segment+".txt"), "r")
-                    sentence = file.readline()
-                    text_list.append(sentence)
-            else:
-                for sample in batch:
-                    sentence = " ".join(sample[0][3])
-                    text_list.append(sentence)
+            for sample in batch:
+                text = " ".join(sample[0][3])
+                text_list.append(text)
+            encoded_bert_sent = roberta_tokenizer(text_list, padding=True, truncation=True,
+                                            max_length=roberta_tokenizer.model_max_length, return_tensors="pt")
 
-            if config.bert_model == "roberta":
-                encoded_bert_sent = roberta_tokenizer(text_list, padding=True, truncation=True,
-                                                max_length=roberta_tokenizer.model_max_length, return_tensors="pt")
-            elif config.bert_model == "deberta":
-                encoded_bert_sent = deberta_tokenizer(text_list, padding=True, truncation=True,
-                                            max_length=deberta_tokenizer.model_max_length, return_tensors="pt")
-            # Bert things are batch_first
-            bert_sentences = torch.cuda.LongTensor(encoded_bert_sent["input_ids"])
-            bert_sentence_att_mask = torch.cuda.LongTensor(encoded_bert_sent["attention_mask"])
+            bert_sentences = torch.tensor(encoded_bert_sent["input_ids"])
+            bert_sentence_types = bert_sentences
+            bert_sentence_att_mask = torch.tensor(encoded_bert_sent["attention_mask"])
+        elif config.text_encoder == 'deberta':
+            text_list = []
+            for sample in batch:
+                text = " ".join(sample[0][3])
+                text_list.append(text)
+            encoded_bert_sent = deberta_tokenizer(text_list, padding=True, truncation=True,
+                                            max_length=roberta_tokenizer.model_max_length, return_tensors="pt")
 
-            # lengths are useful later in using RNNs
-            lengths = torch.LongTensor([len(sample[0][0]) for sample in batch])
-            if (vlens <= 0).sum() > 0:
-                vlens[np.where(vlens == 0)] = 1
+            bert_sentences = torch.tensor(encoded_bert_sent["input_ids"])
+            bert_sentence_types = bert_sentences
+            bert_sentence_att_mask = torch.tensor(encoded_bert_sent["attention_mask"])
 
-            return sentences, visual, vlens, acoustic, alens, labels, lengths, bert_sentences, bert_sentences, bert_sentence_att_mask, ids
+        # lengths are useful later in using RNNs
+        lengths = torch.tensor([len(sample[0][0]) for sample in batch])
+        if (vlens <= 0).sum() > 0:
+            vlens[np.where(vlens == 0)] = 1
 
+        return sentences, visual, vlens, acoustic, alens, labels, lengths, bert_sentences, bert_sentence_types, bert_sentence_att_mask, ids
+        
 
+    if torch.cuda.is_available() and use_cuda:
+        generator = torch.Generator(device='cuda')
+    else:
+        generator = torch.Generator(device='cpu')
     data_loader = DataLoader(
         dataset=dataset,
         batch_size=config.batch_size,
         shuffle=shuffle,
-        collate_fn=collate_fn, 
-        generator =torch.Generator(device='cuda'))
+        collate_fn=collate_fn,
+        generator=generator)
 
     return data_loader
+

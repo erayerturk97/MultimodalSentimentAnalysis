@@ -21,11 +21,16 @@ from utils.tools import *
 from model_gb import MSA_GB
 
 class Solver_GB(object):
-    def __init__(self, hyp_params, train_loader, dev_loader, test_loader, is_train=True):
+    def __init__(self, hyp_params, train_loader, dev_loader, test_loader, is_train=True, use_cuda = True):
         self.hp = hp = hyp_params
         self.train_loader = train_loader
         self.dev_loader = dev_loader
         self.test_loader = test_loader
+        self.use_cuda = use_cuda
+        if torch.cuda.is_available() and self.use_cuda:
+            generator = torch.Generator(device='cuda')
+        else:
+            generator = torch.Generator(device='cpu')
 
         v_rate = 0.1
         train_datas = train_loader.dataset
@@ -35,22 +40,25 @@ class Solver_GB(object):
         v_inds = inds[:splitloc]
         tt_data = Subset(train_datas, t_inds)
         tv_data = Subset(train_datas, v_inds)
+
         self.tt_loader = DataLoader(
             dataset=tt_data,
             shuffle=True,
             batch_size=train_loader.batch_size,
-            collate_fn=train_loader.collate_fn)
+            collate_fn=train_loader.collate_fn,
+            generator=generator)
         self.tv_loader = DataLoader(
             dataset=tv_data,
             shuffle=False,
             batch_size=train_loader.batch_size,
-            collate_fn=train_loader.collate_fn)
+            collate_fn=train_loader.collate_fn,
+            generator=generator)
 
         self.is_train = is_train
 
         # initialize the model
         self.model = model = MSA_GB(hp)
-        if torch.cuda.is_available():
+        if torch.cuda.is_available() and self.use_cuda:
             self.device = torch.device("cuda")
             model = model.cuda()
         else:
@@ -97,9 +105,11 @@ class Solver_GB(object):
             for i_batch, batch_data in enumerate(self.tt_loader):
                 model.zero_grad()
                 text, visual, vlens, audio, alens, y, l, bert_sent, bert_sent_type, bert_sent_mask, ids = batch_data
-                text, visual, audio, y, l, bert_sent, bert_sent_type, bert_sent_mask = \
-                    text.cuda(), visual.cuda(), audio.cuda(), y.cuda(), l.cuda(), bert_sent.cuda(), \
-                    bert_sent_type.cuda(), bert_sent_mask.cuda()
+                if torch.cuda.is_available() and self.use_cuda:
+                    with torch.cuda.device(0):
+                        text, visual, audio, y, l, bert_sent, bert_sent_type, bert_sent_mask = \
+                        text.cuda(), visual.cuda(), audio.cuda(), y.cuda(), l.cuda(), bert_sent.cuda(), \
+                        bert_sent_type.cuda(), bert_sent_mask.cuda()
 
                 preds = model(text, visual, audio, vlens, alens, 
                             bert_sent, bert_sent_type, bert_sent_mask)
@@ -121,13 +131,17 @@ class Solver_GB(object):
         weights = []
         for modal_idx in range(3):
             print("At gb_estimate unimodal "+str(modal_idx))
-            uni_model = copy.deepcopy(model).cuda()
+            uni_model = copy.deepcopy(model)
+            if torch.cuda.is_available() and self.use_cuda:
+                uni_model = uni_model.cuda()
             uni_optim, _ = self.get_optim(uni_model)
             w = self.gb_train(uni_model, uni_optim, modal_idx)
             weights.append(w)
 
         print("At gb_estimate multimodal ")
-        tri_model = copy.deepcopy(model).cuda()
+        tri_model = copy.deepcopy(model)
+        if torch.cuda.is_available() and self.use_cuda:
+                tri_model = tri_model.cuda()
         tri_optim, _ = self.get_optim(tri_model)
         w = self.gb_train(uni_model, uni_optim, 3)
         weights.append(w)
@@ -270,11 +284,13 @@ class Solver_GB(object):
 
         print(f'Best epoch: {best_epoch}')
         if self.hp.dataset in ["mosei_senti", "mosei"]:
-            eval_mosei_senti(best_results, best_truths, True)
+            self.best_dict = eval_mosei_senti(best_results, best_truths, True)
         elif self.hp.dataset == 'mosi':
             self.best_dict = eval_mosi(best_results, best_truths, True)
 
         sys.stdout.flush()
+        self.best_dict["best_epoch"] = best_epoch
+        return self.best_dict
 
     def test(self, index=0):
         model = self.model

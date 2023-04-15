@@ -20,11 +20,12 @@ from utils.tools import *
 from model import MMIM
 
 class Solver(object):
-    def __init__(self, hyp_params, train_loader, dev_loader, test_loader, is_train=True):
+    def __init__(self, hyp_params, train_loader, dev_loader, test_loader, is_train=True, use_cuda = True):
         self.hp = hp = hyp_params
         self.train_loader = train_loader
         self.dev_loader = dev_loader
         self.test_loader = test_loader
+        self.use_cuda = use_cuda
 
         self.is_train = is_train
 
@@ -37,9 +38,9 @@ class Solver(object):
         # initialize the model
         self.model = model = MMIM(hp)
         
-        if torch.cuda.is_available():
+        if torch.cuda.is_available() and self.use_cuda:
             self.device = torch.device("cuda")
-            model = model.cuda()
+            self.model = self.model.cuda()
         else:
             self.device = torch.device("cpu")
 
@@ -67,7 +68,7 @@ class Solver(object):
                     else: 
                         main_param.append(p)
 
-                for p in (mmilb_param+main_param):
+                for p in (mmilb_param+main_param): ###### !!!!!!!!!!!!!!!!!!!!!!!! this looks wrong !!!!!!!!!!!!!!!!!!!
                     if p.dim() > 1: # only tensor with no less than 2 dimensions are possible to calculate fan_in/fan_out
                         nn.init.xavier_normal_(p)
 
@@ -134,13 +135,13 @@ class Solver(object):
                     if stage == 0 and i_batch / len(self.train_loader) >= 0.5:
                         break
                 model.zero_grad()
-
-                with torch.cuda.device(0):
-                    text, visual, audio, y, l, bert_sent, bert_sent_type, bert_sent_mask = \
-                    text.cuda(), visual.cuda(), audio.cuda(), y.cuda(), l.cuda(), bert_sent.cuda(), \
-                    bert_sent_type.cuda(), bert_sent_mask.cuda()
-                    if self.hp.dataset=="ur_funny":
-                        y = y.squeeze()
+                if torch.cuda.is_available() and self.use_cuda:
+                    with torch.cuda.device(0):
+                        text, visual, audio, y, l, bert_sent, bert_sent_type, bert_sent_mask = \
+                        text.cuda(), visual.cuda(), audio.cuda(), y.cuda(), l.cuda(), bert_sent.cuda(), \
+                        bert_sent_type.cuda(), bert_sent_mask.cuda()
+                if self.hp.dataset=="ur_funny":
+                    y = y.squeeze()
                 
                 batch_size = y.size(0)
 
@@ -235,10 +236,11 @@ class Solver(object):
                 for batch in loader:
                     text, vision, vlens, audio, alens, y, lengths, bert_sent, bert_sent_type, bert_sent_mask, ids = batch
 
-                    with torch.cuda.device(0):
-                        text, audio, vision, y = text.cuda(), audio.cuda(), vision.cuda(), y.cuda()
-                        lengths = lengths.cuda()
-                        bert_sent, bert_sent_type, bert_sent_mask = bert_sent.cuda(), bert_sent_type.cuda(), bert_sent_mask.cuda()
+                    if torch.cuda.is_available() and self.use_cuda:
+                        with torch.cuda.device(0):
+                            text, audio, vision, y = text.cuda(), audio.cuda(), vision.cuda(), y.cuda()
+                            lengths = lengths.cuda()
+                            bert_sent, bert_sent_type, bert_sent_mask = bert_sent.cuda(), bert_sent_type.cuda(), bert_sent_mask.cuda()
 
                     batch_size = lengths.size(0) # bert_sent in size (bs, seq_len, emb_size)
 
@@ -312,11 +314,14 @@ class Solver(object):
 
         print(f'Best epoch: {best_epoch}')
         if self.hp.dataset in ["mosei_senti", "mosei"]:
-            eval_mosei_senti(best_results, best_truths, True)
+            self.best_dict = eval_mosei_senti(best_results, best_truths, True)
         elif self.hp.dataset == 'mosi':
             self.best_dict = eval_mosi(best_results, best_truths, True)
 
         sys.stdout.flush()
+        self.best_dict["best_epoch"] = best_epoch
+        return self.best_dict
+    
 
     def test(self):
         model = self.model
@@ -329,14 +334,12 @@ class Solver(object):
             for batch in loader:
                 text, vision, vlens, audio, alens, y, lengths, bert_sent, bert_sent_type, bert_sent_mask, ids = batch
 
-                with torch.cuda.device(0):
-                    text, audio, vision, y = text.cuda(), audio.cuda(), vision.cuda(), y.cuda()
-                    lengths = lengths.cuda()
-                    bert_sent, bert_sent_type, bert_sent_mask = bert_sent.cuda(), bert_sent_type.cuda(), bert_sent_mask.cuda()
+                if torch.cuda.is_available() and self.use_cuda:
+                    with torch.cuda.device(0):
+                        text, audio, vision, y = text.cuda(), audio.cuda(), vision.cuda(), y.cuda()
+                        lengths = lengths.cuda()
+                        bert_sent, bert_sent_type, bert_sent_mask = bert_sent.cuda(), bert_sent_type.cuda(), bert_sent_mask.cuda()
 
-                if self.hp.test:
-                    vision = torch.randn(vision.shape[0], vision.shape[1], vision.shape[2]).cuda()
-                    audio = torch.randn(audio.shape[0], audio.shape[1], audio.shape[2]).cuda()
 
                 _, _, preds, _, _ = model(text, vision, audio, vlens, alens, bert_sent, bert_sent_type, bert_sent_mask)
 
@@ -346,4 +349,4 @@ class Solver(object):
         results = torch.cat(results)
         truths = torch.cat(truths)
 
-        eval_mosei_senti(results, truths, True)
+        return eval_mosei_senti(results, truths, True)

@@ -1,4 +1,4 @@
-import os
+import os, sys
 import argparse
 from datetime import datetime
 from collections import defaultdict
@@ -8,17 +8,16 @@ import pprint
 from torch import optim
 import torch.nn as nn
 
-# path to a pretrained word embedding file
-word_emb_path = '/home/henry/glove/glove.840B.300d.txt'
-assert(word_emb_path is not None)
-
-
 username = Path.home().name
-project_dir = Path(__file__).resolve().parent.parent.parent
+project_dir = Path(__file__).resolve().parent.parent
 sdk_dir = project_dir.joinpath('CMU-MultimodalSDK')
 data_dir = project_dir.joinpath('datasets')
 data_dict = {'mosi': data_dir.joinpath('MOSI'), 'mosei': data_dir.joinpath(
     'MOSEI'), 'ur_funny': data_dir.joinpath('UR_FUNNY')}
+# path to a pretrained word embedding file
+word_emb_path = f'{project_dir}/datasets/glove.840B.300d.txt'
+assert(word_emb_path is not None)
+
 optimizer_dict = {'RMSprop': optim.RMSprop, 'Adam': optim.Adam, 'AdamW': optim.AdamW}
 activation_dict = {'elu': nn.ELU, "hardshrink": nn.Hardshrink, "hardtanh": nn.Hardtanh,
                    "leakyrelu": nn.LeakyReLU, "prelu": nn.PReLU, "relu": nn.ReLU, "rrelu": nn.RReLU,
@@ -41,8 +40,8 @@ def get_args():
 
     # Tasks
     parser.add_argument('--dataset', type=str, default='mosi', choices=['mosi','mosei'],
-                        help='dataset to use (default: mosei)')
-    parser.add_argument('--data_path', type=str, default='../../datasets',
+                        help='dataset to use (default: mosi)')
+    parser.add_argument('--data_path', type=str, default='datasets',
                         help='path for storing the dataset')
     parser.add_argument('--test', action='store_true', help='random va evaluation')
 
@@ -70,11 +69,12 @@ def get_args():
                         help='output size in visual rnn')
     parser.add_argument('--d_aout', type=int, default=16,
                         help='output size in acoustic rnn')
-    parser.add_argument('--bidirectional', action='store_true', default=True, help='Whether to use bidirectional rnn')
+    parser.add_argument('--bidirectional', action='store_true', help='Whether to use bidirectional rnn')
     parser.add_argument('--d_prjh', type=int, default=128,
                         help='hidden size in projection network')
     parser.add_argument('--bert_model', type=str, default='bert')
-    parser.add_argument('--fusion', type=str, default='video')
+    parser.add_argument('--fusion', type=str, default='none')
+    parser.add_argument('--text_encoder', type=str, default='bert', help='Text encoder, choose from glove, bert, deberta and roberta')
 
 
     # Activations
@@ -160,11 +160,12 @@ class Config(object):
         return config_str
 
 
-def get_config(dataset='mosi', mode='train', batch_size=32, bert_model='bert'):
+def get_config(dataset='mosi', mode='train', batch_size=32, bert_model='bert', text_encoder='bert'):
     config = Config(data=dataset, mode=mode)
-    
+
     config.dataset = dataset
     config.batch_size = batch_size
     config.bert_model = bert_model
+    config.text_encoder = text_encoder
 
     return config

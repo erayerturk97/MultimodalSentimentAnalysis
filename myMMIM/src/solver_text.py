@@ -202,7 +202,9 @@ class Solver_Text(object):
 
         print(f'Best epoch: {best_epoch}')
         if self.hp.dataset in ["mosei_senti", "mosei"]:
-            eval_mosei_senti(best_results, best_truths, True)
+            self.best_dict = eval_mosei_senti(best_results, best_truths, True)
         elif self.hp.dataset == 'mosi':
             self.best_dict = eval_mosi(best_results, best_truths, True)
         sys.stdout.flush()
+        self.best_dict["best_epoch"] = best_epoch
+        return self.best_dict
