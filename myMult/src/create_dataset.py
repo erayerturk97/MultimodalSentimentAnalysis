@@ -15,9 +15,9 @@ import torch.nn as nn
 
 
 if 'win' in sys.platform:
-    PROJECT_DIR = 'C:/Users/Eray/Desktop/Courses/CSCI535/Project' 
+    PROJECT_DIR = 'C:/Users/Eray/Desktop/Courses/CSCI535/Project/MultimodalSentimentAnalysis' 
 else:
-    PROJECT_DIR = '/scratch2/eerturk/CSCI535/Project'
+    PROJECT_DIR = '/scratch2/eerturk/CSCI535/Project/MultimodalSentimentAnalysis'
 sys.path.append(PROJECT_DIR)
 sys.path.append(f'{PROJECT_DIR}/myMISA/src')
 

@@ -26,6 +26,9 @@ class MULTModel(nn.Module):
             self.orig_d_l = 1024
         elif hyp_params.text_encoder == 'glove':
             self.orig_d_l = 300
+        
+        if self.hyp_params.audio_encoder == 'hubert':
+            self.orig_d_a = 768
 
         if self.hyp_params.text_encoder == 'glove':
             self.embed = nn.Embedding(len(hyp_params.word2id), self.orig_d_l)
@@ -115,7 +118,7 @@ class MULTModel(nn.Module):
                                   embed_dropout=self.embed_dropout,
                                   attn_mask=self.attn_mask)
 
-    def forward(self, sentences, x_a, x_v, bert_sent, bert_sent_type, bert_sent_mask): # (self, x_l, x_a, x_v, sentences):
+    def forward(self, sentences, x_a, x_v, bert_sent, bert_sent_type, bert_sent_mask, hubert_embeddings_all): # (self, x_l, x_a, x_v, sentences):
         '''
         text, audio, and vision should have dimension [batch_size, seq_len, n_features]
         '''
@@ -162,6 +165,9 @@ class MULTModel(nn.Module):
                 attention_mask=bert_sent_mask)
             x_l = x_l[0]
 
+        if self.hyp_params.audio_encoder == 'hubert':
+            x_a = hubert_embeddings_all
+        
         x_l = F.dropout(x_l.transpose(1, 2), p=self.embed_dropout, training=self.training)
         x_a = x_a.transpose(1, 2)
         x_v = x_v.transpose(1, 2)

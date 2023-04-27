@@ -6,10 +6,11 @@
 : "${MEM:=32GB}"
 
 : "${env_dir:=/scratch1/eerturk/envs/venv_535_project/bin/activate}"
-: "${log_dir:=/scratch2/eerturk/CSCI535/Project/fusions/logs}"
+: "${log_dir:=/scratch2/eerturk/CSCI535/Project/MultimodalSentimentAnalysis/fusions/logs}"
 : "${log_file:=log.txt}"
-: "${code_dir:=/scratch2/eerturk/CSCI535/Project/fusions/src}"
+: "${code_dir:=/scratch2/eerturk/CSCI535/Project/MultimodalSentimentAnalysis/fusions/src}"
 : "${text_encoder:=bert}"
+: "${audio_encoder:=rnn}"
 : "${data:=mosi}"
 : "${model:=TextClassifier}"
 : "${hidden_size:=128}"
@@ -27,4 +28,4 @@ export MPLCONFIGDIR=/scratch2/eerturk/python-cache/mpl-cache
 export GIT_PYTHON_REFRESH=quiet
 
 cd $code_dir
-python3 -u train.py --text_encoder ${text_encoder} --data ${data} --model ${model}| tee -a ${log_dir}/${log_file}
+python3 -u train.py --text_encoder ${text_encoder} --data ${data} --model ${model} --audio_encoder ${audio_encoder}| tee -a ${log_dir}/${log_file}

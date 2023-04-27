@@ -6,9 +6,9 @@ from src.data_loader import get_loader
 from src import train
 
 if 'win' in sys.platform:
-    PROJECT_DIR = 'C:/Users/Eray/Desktop/Courses/CSCI535/Project' 
+    PROJECT_DIR = 'C:/Users/Eray/Desktop/Courses/CSCI535/Project/MultimodalSentimentAnalysis' 
 else:
-    PROJECT_DIR = '/scratch2/eerturk/CSCI535/Project'
+    PROJECT_DIR = '/scratch2/eerturk/CSCI535/Project/MultimodalSentimentAnalysis'
 
 parser = argparse.ArgumentParser(description='MOSEI Sentiment Analysis')
 parser.add_argument('-f', default='', type=str)
@@ -26,7 +26,7 @@ parser.add_argument('--lonly', action='store_true',
                     help='use the crossmodal fusion into l (default: False)')
 parser.add_argument('--aligned', action='store_true',
                     help='consider aligned experiment or not (default: False)')
-parser.add_argument('--dataset', type=str, default='mosei',
+parser.add_argument('--dataset', type=str, default='mosi',
                     help='dataset to use (default: mosei)')
 parser.add_argument('--data_path', type=str, default='data',
                     help='path for storing the dataset')
@@ -54,10 +54,11 @@ parser.add_argument('--num_heads', type=int, default=5,
                     help='number of heads for the transformer network (default: 5)')
 parser.add_argument('--attn_mask', action='store_false',
                     help='use attention mask for Transformer (default: true)')
-parser.add_argument('--text_encoder', type=str, default='deberta')
+parser.add_argument('--text_encoder', type=str, default='bert')
+parser.add_argument('--audio_encoder', type=str, default='hubert')
 
 # Tuning
-parser.add_argument('--batch_size', type=int, default=32, metavar='N',
+parser.add_argument('--batch_size', type=int, default=4, metavar='N',
                     help='batch size (default: 24)')
 parser.add_argument('--clip', type=float, default=0.8,
                     help='gradient clip value (default: 0.8)')
@@ -121,8 +122,10 @@ elif 'mosei' in args.dataset:
 args.data_dir = args.dataset_dir
 args.sdk_dir = f'{PROJECT_DIR}/CMU-MultimodalSDK'
 args.device = 'cuda' if use_cuda else 'cpu'
-args.save_dir = f'{PROJECT_DIR}/myMult/results/{args.dataset}/{args.text_encoder}/checkpoints'; os.makedirs(args.save_dir, exist_ok=True)
-
+args.save_dir = f'{PROJECT_DIR}/myMult/results/{args.dataset}/{args.text_encoder}/checkpoints'
+if args.audio_encoder == 'hubert':
+    args.save_dir = f'{PROJECT_DIR}/myMult/results/{args.dataset}/{args.text_encoder}_hubert/checkpoints'
+os.makedirs(args.save_dir, exist_ok=True)
 
 print("Start loading the data....")
 args.mode = 'train'
@@ -156,4 +159,4 @@ hyp_params.model = str.upper(args.model.strip())
 hyp_params.output_dim = output_dim_dict.get(dataset, 1)
 
 if __name__ == '__main__':
-    test_loss = train.initiate(hyp_params, train_loader, valid_loader, test_loader, do_train=False)
+    test_loss = train.initiate(hyp_params, train_loader, valid_loader, test_loader, do_train=True)

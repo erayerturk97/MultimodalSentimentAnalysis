@@ -52,6 +52,10 @@ class Solver(object):
 
             if 'weight_hh' in name:
                 nn.init.orthogonal_(param)
+            
+            # freeze hubert weights
+            # if 'hubert' in name:
+            #     param.requires_grad = False
             #print('\t' + name, param.requires_grad)
 
         # Initialize weight of Embedding matrix with Glove embeddings
@@ -71,109 +75,111 @@ class Solver(object):
 
     @time_desc_decorator('Training Start!')
     def train(self, cuda=True):
-        curr_patience = patience = self.train_config.patience
-        num_trials = 1
+        if self.is_train:
+            curr_patience = patience = self.train_config.patience
+            num_trials = 1
 
-        # self.criterion = criterion = nn.L1Loss(reduction="mean")
-        if self.train_config.data == "ur_funny":
-            self.criterion = criterion = nn.CrossEntropyLoss(reduction="mean")
-        else: # mosi and mosei are regression datasets
-            self.criterion = criterion = nn.MSELoss(reduction="mean")
+            # self.criterion = criterion = nn.L1Loss(reduction="mean")
+            if self.train_config.data == "ur_funny":
+                self.criterion = criterion = nn.CrossEntropyLoss(reduction="mean")
+            else: # mosi and mosei are regression datasets
+                self.criterion = criterion = nn.MSELoss(reduction="mean")
 
-
-        self.domain_loss_criterion = nn.CrossEntropyLoss(reduction="mean")
-        self.sp_loss_criterion = nn.CrossEntropyLoss(reduction="mean")
-        self.loss_diff = DiffLoss()
-        self.loss_recon = MSE()
-        self.loss_cmd = CMD()
-        
-        best_valid_loss = float('inf')
-        lr_scheduler = torch.optim.lr_scheduler.ExponentialLR(self.optimizer, gamma=0.5)
-        
-        train_losses = []
-        valid_losses = []
-        for e in range(self.train_config.n_epoch):
-            self.model.train()
-
-            train_loss_cls, train_loss_sim, train_loss_diff = [], [], []
-            train_loss_recon = []
-            train_loss_sp = []
-            train_loss = []
-            for batch in self.train_data_loader:
-                self.model.zero_grad()
-                t, v, a, y, l, bert_sent, bert_sent_type, bert_sent_mask = batch
-
-                batch_size = t.size(0)
-                t = to_gpu(t, on_cpu=not cuda)
-                v = to_gpu(v, on_cpu=not cuda)
-                a = to_gpu(a, on_cpu=not cuda)
-                y = to_gpu(y, on_cpu=not cuda)
-                l = to_gpu(l, on_cpu=not cuda)
-                bert_sent = to_gpu(bert_sent, on_cpu=not cuda)
-                bert_sent_type = to_gpu(bert_sent_type, on_cpu=not cuda)
-                bert_sent_mask = to_gpu(bert_sent_mask, on_cpu=not cuda)
-
-                y_tilde = self.model(t, v, a, l, bert_sent, bert_sent_type, bert_sent_mask)
-                
-                if self.train_config.data == "ur_funny":
-                    y = y.squeeze()
-
-                cls_loss = criterion(y_tilde, y)
-                diff_loss = self.get_diff_loss()
-                domain_loss = self.get_domain_loss()
-                recon_loss = self.get_recon_loss()
-                cmd_loss = self.get_cmd_loss()
-                
-                if self.train_config.use_cmd_sim:
-                    similarity_loss = cmd_loss
-                else:
-                    similarity_loss = domain_loss
-
-                loss = cls_loss + \
-                    self.train_config.diff_weight * diff_loss + \
-                    self.train_config.sim_weight * similarity_loss + \
-                    self.train_config.recon_weight * recon_loss
-
-                loss.backward()
-                
-                torch.nn.utils.clip_grad_value_([param for param in self.model.parameters() if param.requires_grad], self.train_config.clip)
-                self.optimizer.step()
-
-                train_loss_cls.append(cls_loss.item())
-                train_loss_diff.append(diff_loss.item())
-                train_loss_recon.append(recon_loss.item())
-                train_loss.append(loss.item())
-                train_loss_sim.append(similarity_loss.item())
-                
-
-            train_losses.append(train_loss)
-            print(f"Training loss: {round(np.mean(train_loss), 4)}")
-
-            valid_loss, valid_acc = self.eval(mode="dev")
-            print(f"Val loss: {round(valid_loss, 4)}")
+            self.domain_loss_criterion = nn.CrossEntropyLoss(reduction="mean")
+            self.sp_loss_criterion = nn.CrossEntropyLoss(reduction="mean")
+            self.loss_diff = DiffLoss()
+            self.loss_recon = MSE()
+            self.loss_cmd = CMD()
             
-            print(f"Current patience: {curr_patience}, current trial: {num_trials}.")
-            if valid_loss <= best_valid_loss:
-                best_valid_loss = valid_loss
-                print("Found new best model on dev set!")
-                if not os.path.exists(f'{self.train_config.save_dir}/checkpoints'): os.makedirs(f'{self.train_config.save_dir}/checkpoints')
-                torch.save(self.model.state_dict(), f'{self.train_config.save_dir}/checkpoints/model_{self.train_config.name}.std')
-                torch.save(self.optimizer.state_dict(), f'{self.train_config.save_dir}/checkpoints/optim_{self.train_config.name}.std')
-                curr_patience = patience
-            else:
-                curr_patience -= 1
-                if curr_patience <= -1:
-                    print("Running out of patience, loading previous best model.")
-                    num_trials -= 1
+            best_valid_loss = float('inf')
+            lr_scheduler = torch.optim.lr_scheduler.ExponentialLR(self.optimizer, gamma=0.5)
+            
+            train_losses = []
+            valid_losses = []
+            for e in range(self.train_config.n_epoch):
+                self.model.train()
+
+                train_loss_cls, train_loss_sim, train_loss_diff = [], [], []
+                train_loss_recon = []
+                train_loss_sp = []
+                train_loss = []
+                for batch in self.train_data_loader:
+                    self.model.zero_grad()
+                    t, v, a, y, l, bert_sent, bert_sent_type, bert_sent_mask, hubert_feats, hubert_feats_att_mask, hubert_embeddings = batch
+
+                    t = to_gpu(t, on_cpu=not cuda)
+                    v = to_gpu(v, on_cpu=not cuda)
+                    a = to_gpu(a, on_cpu=not cuda)
+                    y = to_gpu(y, on_cpu=not cuda)
+                    l = to_gpu(l, on_cpu=not cuda)
+                    bert_sent = to_gpu(bert_sent, on_cpu=not cuda)
+                    bert_sent_type = to_gpu(bert_sent_type, on_cpu=not cuda)
+                    bert_sent_mask = to_gpu(bert_sent_mask, on_cpu=not cuda)
+                    hubert_feats = to_gpu(hubert_feats, on_cpu=not cuda)
+                    hubert_feats_att_mask = to_gpu(hubert_feats_att_mask, on_cpu=not cuda)
+                    hubert_embeddings = to_gpu(hubert_embeddings, on_cpu=not cuda)
+
+                    y_tilde = self.model(t, v, a, l, bert_sent, bert_sent_type, bert_sent_mask, hubert_feats, hubert_feats_att_mask, hubert_embeddings)
+                    
+                    if self.train_config.data == "ur_funny":
+                        y = y.squeeze()
+
+                    cls_loss = criterion(y_tilde, y)
+                    diff_loss = self.get_diff_loss()
+                    domain_loss = self.get_domain_loss()
+                    recon_loss = self.get_recon_loss()
+                    cmd_loss = self.get_cmd_loss()
+                    
+                    if self.train_config.use_cmd_sim:
+                        similarity_loss = cmd_loss
+                    else:
+                        similarity_loss = domain_loss
+
+                    loss = cls_loss + \
+                        self.train_config.diff_weight * diff_loss + \
+                        self.train_config.sim_weight * similarity_loss + \
+                        self.train_config.recon_weight * recon_loss
+
+                    loss.backward()
+                    
+                    torch.nn.utils.clip_grad_value_([param for param in self.model.parameters() if param.requires_grad], self.train_config.clip)
+                    self.optimizer.step()
+
+                    train_loss_cls.append(cls_loss.item())
+                    train_loss_diff.append(diff_loss.item())
+                    train_loss_recon.append(recon_loss.item())
+                    train_loss.append(loss.item())
+                    train_loss_sim.append(similarity_loss.item())
+                    
+
+                train_losses.append(train_loss)
+                print(f"Training loss: {round(np.mean(train_loss), 4)}")
+
+                valid_loss, valid_acc = self.eval(mode="dev")
+                print(f"Val loss: {round(valid_loss, 4)}")
+                
+                print(f"Current patience: {curr_patience}, current trial: {num_trials}.")
+                if valid_loss <= best_valid_loss:
+                    best_valid_loss = valid_loss
+                    print("Found new best model on dev set!")
+                    if not os.path.exists(f'{self.train_config.save_dir}/checkpoints'): os.makedirs(f'{self.train_config.save_dir}/checkpoints')
+                    torch.save(self.model.state_dict(), f'{self.train_config.save_dir}/checkpoints/model_{self.train_config.name}.std')
+                    torch.save(self.optimizer.state_dict(), f'{self.train_config.save_dir}/checkpoints/optim_{self.train_config.name}.std')
                     curr_patience = patience
-                    self.model.load_state_dict(torch.load(f'{self.train_config.save_dir}/checkpoints/model_{self.train_config.name}.std'))
-                    self.optimizer.load_state_dict(torch.load(f'{self.train_config.save_dir}/checkpoints/optim_{self.train_config.name}.std'))
-                    lr_scheduler.step()
-                    print(f"Current learning rate: {self.optimizer.state_dict()['param_groups'][0]['lr']}")
-            
-            if num_trials <= 0:
-                print("Running out of patience, early stopping.")
-                break
+                else:
+                    curr_patience -= 1
+                    if curr_patience <= -1:
+                        print("Running out of patience, loading previous best model.")
+                        num_trials -= 1
+                        curr_patience = patience
+                        self.model.load_state_dict(torch.load(f'{self.train_config.save_dir}/checkpoints/model_{self.train_config.name}.std'))
+                        self.optimizer.load_state_dict(torch.load(f'{self.train_config.save_dir}/checkpoints/optim_{self.train_config.name}.std'))
+                        lr_scheduler.step()
+                        print(f"Current learning rate: {self.optimizer.state_dict()['param_groups'][0]['lr']}")
+                
+                if num_trials <= 0:
+                    print("Running out of patience, early stopping.")
+                    break
 
         self.eval(mode="test", to_print=True, cuda=cuda)
 
@@ -193,8 +199,15 @@ class Solver(object):
             dataloader = self.test_data_loader
 
             if to_print:
+                file_list = os.listdir(f'{self.train_config.save_dir}/checkpoints')
+                for file in file_list:
+                    if 'model' in file:
+                        break
                 self.model.load_state_dict(torch.load(
-                    f'{self.train_config.save_dir}/checkpoints/model_{self.train_config.name}.std'))
+                                                    f'{self.train_config.save_dir}/checkpoints/{file}'))
+
+            #     self.model.load_state_dict(torch.load(
+            #         f'{self.train_config.save_dir}/checkpoints/model_{self.train_config.name}.std'))
             
 
         with torch.no_grad():
@@ -203,7 +216,7 @@ class Solver(object):
             num_batch_noise_added = 0 
             for batch in dataloader:
                 self.model.zero_grad()
-                t, v, a, y, l, bert_sent, bert_sent_type, bert_sent_mask = batch
+                t, v, a, y, l, bert_sent, bert_sent_type, bert_sent_mask, hubert_feats, hubert_feats_att_mask, hubert_embeddings = batch
 
                 t = to_gpu(t, on_cpu=not cuda)
                 v = to_gpu(v, on_cpu=not cuda)
@@ -213,6 +226,9 @@ class Solver(object):
                 bert_sent = to_gpu(bert_sent, on_cpu=not cuda)
                 bert_sent_type = to_gpu(bert_sent_type, on_cpu=not cuda)
                 bert_sent_mask = to_gpu(bert_sent_mask, on_cpu=not cuda)
+                hubert_feats = to_gpu(hubert_feats, on_cpu=not cuda)
+                hubert_feats_att_mask = to_gpu(hubert_feats_att_mask, on_cpu=not cuda)
+                hubert_embeddings = to_gpu(hubert_embeddings, on_cpu=not cuda)
 
                 if self.train_config.add_noise:
                     if num_batch_noise_added < num_batches * self.train_config.add_noise_batch_per:
@@ -223,8 +239,7 @@ class Solver(object):
                 else:
                     add_noise = False
 
-                y_tilde = self.model(t, v, a, l, bert_sent, bert_sent_type, bert_sent_mask, add_noise=add_noise)
-
+                y_tilde = self.model(t, v, a, l, bert_sent, bert_sent_type, bert_sent_mask, hubert_feats, hubert_feats_att_mask, hubert_embeddings, add_noise=add_noise)
 
                 if self.train_config.data == "ur_funny":
                     y = y.squeeze()

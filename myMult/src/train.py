@@ -114,7 +114,7 @@ def train_model(settings, hyp_params, train_loader, valid_loader, test_loader, d
         proc_loss, proc_size = 0, 0
         start_time = time.time()
         for i_batch, batch in enumerate(train_loader):
-            text, vision, audio, eval_attr, _, bert_sent, bert_sent_type, bert_sent_mask = batch
+            text, vision, audio, eval_attr, _, bert_sent, bert_sent_type, bert_sent_mask, _, _, _, hubert_embeddings_all = batch
 
             model.zero_grad()
             if ctc_criterion is not None:
@@ -123,11 +123,8 @@ def train_model(settings, hyp_params, train_loader, valid_loader, test_loader, d
 
             if hyp_params.use_cuda:
                 with torch.cuda.device(0):
-                    text, audio, vision, eval_attr, bert_sent, bert_sent_type, bert_sent_mask = text.cuda(), audio.cuda(), vision.cuda(), eval_attr.cuda(), bert_sent.cuda(), bert_sent_type.cuda(), bert_sent_mask.cuda()
+                    text, audio, vision, eval_attr, bert_sent, bert_sent_type, bert_sent_mask, hubert_embeddings_all = text.cuda(), audio.cuda(), vision.cuda(), eval_attr.cuda(), bert_sent.cuda(), bert_sent_type.cuda(), bert_sent_mask.cuda(), hubert_embeddings_all.cuda()
             
-            text = text.permute(1, 0)
-            audio = audio.permute(1, 0, 2)
-            vision = vision.permute(1, 0, 2)
             batch_size = eval_attr.size(0)
 
             ######## CTC STARTS ######## Do not worry about this if not working on CTC
@@ -157,7 +154,7 @@ def train_model(settings, hyp_params, train_loader, valid_loader, test_loader, d
             ######## CTC ENDS ########
 
             combined_loss = 0
-            preds, hiddens = model(text, audio, vision, bert_sent, bert_sent_type, bert_sent_mask)
+            preds, hiddens = model(text, audio, vision, bert_sent, bert_sent_type, bert_sent_mask, hubert_embeddings_all)
             raw_loss = criterion(preds, eval_attr)
             combined_loss = raw_loss + ctc_loss
             combined_loss.backward()
@@ -194,15 +191,12 @@ def train_model(settings, hyp_params, train_loader, valid_loader, test_loader, d
 
         with torch.no_grad():
             for i_batch, batch in enumerate(loader):
-                text, vision, audio, eval_attr, _, bert_sent, bert_sent_type, bert_sent_mask = batch
+                text, vision, audio, eval_attr, _, bert_sent, bert_sent_type, bert_sent_mask, _, _, _, hubert_embeddings_all = batch
 
                 if hyp_params.use_cuda:
                     with torch.cuda.device(0):
-                        text, audio, vision, eval_attr, bert_sent, bert_sent_type, bert_sent_mask = text.cuda(), audio.cuda(), vision.cuda(), eval_attr.cuda(), bert_sent.cuda(), bert_sent_type.cuda(), bert_sent_mask.cuda()
+                        text, audio, vision, eval_attr, bert_sent, bert_sent_type, bert_sent_mask, hubert_embeddings_all  = text.cuda(), audio.cuda(), vision.cuda(), eval_attr.cuda(), bert_sent.cuda(), bert_sent_type.cuda(), bert_sent_mask.cuda(), hubert_embeddings_all.cuda()
 
-                text = text.permute(1, 0)
-                audio = audio.permute(1, 0, 2)
-                vision = vision.permute(1, 0, 2)
                 batch_size = eval_attr.size(0)
 
                 if (ctc_a2l_module is not None) and (ctc_v2l_module is not None):
@@ -211,7 +205,7 @@ def train_model(settings, hyp_params, train_loader, valid_loader, test_loader, d
                     audio, _ = ctc_a2l_net(audio)     # audio aligned to text
                     vision, _ = ctc_v2l_net(vision)   # vision aligned to text
 
-                preds, _ = model(text, audio, vision, bert_sent, bert_sent_type, bert_sent_mask)
+                preds, _ = model(text, audio, vision, bert_sent, bert_sent_type, bert_sent_mask, hubert_embeddings_all)
                 total_loss += criterion(preds, eval_attr).item() * batch_size
 
                 # Collect the results into dictionary

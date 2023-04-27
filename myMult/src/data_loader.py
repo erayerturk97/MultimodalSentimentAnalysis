@@ -5,7 +5,8 @@ import numpy as np
 from tqdm import tqdm_notebook
 from mmsdk import mmdatasdk as md
 from collections import defaultdict
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, Wav2Vec2FeatureExtractor, AutoProcessor
+from scipy.io import wavfile
 
 import torch
 import torch.nn as nn
@@ -14,6 +15,10 @@ from torch.nn.utils.rnn import pad_sequence, pack_padded_sequence, pad_packed_se
 
 from src.create_dataset import MOSI, MOSEI, PAD, UNK
 
+if 'win' in sys.platform:
+    PROJECT_DIR = 'C:/Users/Eray/Desktop/Courses/CSCI535/Project/MultimodalSentimentAnalysis' 
+else:
+    PROJECT_DIR = '/scratch2/eerturk/CSCI535/Project/MultimodalSentimentAnalysis'
 
 bert_tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
 roberta_tokenizer = AutoTokenizer.from_pretrained('roberta-large')
@@ -63,6 +68,8 @@ class MSADataset(Dataset):
     def __len__(self):
         return self.len
 
+
+
 def get_loader(config, shuffle=True):
     """Load DataLoader of given DialogDataset"""
     dataset = MSADataset(config)
@@ -89,9 +96,9 @@ def get_loader(config, shuffle=True):
             labels = torch.cat([torch.from_numpy(sample[1]) for sample in batch], dim=0)[:, 0:1] # NOTE: for MOSEI columns are: [sentiment,happy,sad,anger,surprise,disgust,fear], we only care about the sentiment. 
         else:
             labels = torch.cat([torch.from_numpy(sample[1]) for sample in batch], dim=0)
-        sentences = pad_sequence([torch.LongTensor(sample[0][0]) for sample in batch], padding_value=PAD)
-        visual = pad_sequence([torch.FloatTensor(sample[0][1]) for sample in batch])
-        acoustic = pad_sequence([torch.FloatTensor(sample[0][2]) for sample in batch])
+        sentences = pad_sequence([torch.tensor(sample[0][0], dtype=torch.int32) for sample in batch], padding_value=PAD)
+        visual = pad_sequence([torch.tensor(sample[0][1], dtype=torch.float32) for sample in batch])
+        acoustic = pad_sequence([torch.tensor(sample[0][2], dtype=torch.float32) for sample in batch])
 
         # get raw text
         # text_list = []
@@ -133,12 +140,12 @@ def get_loader(config, shuffle=True):
             for sample in batch:
                 text = " ".join(sample[0][3])
                 encoded_bert_sent = bert_tokenizer.encode_plus(
-                    text, max_length=SENT_LEN, add_special_tokens=True, pad_to_max_length=True)
+                    text, max_length=SENT_LEN+2, add_special_tokens=True, pad_to_max_length=True)
                 bert_details.append(encoded_bert_sent)
 
-            bert_sentences = torch.LongTensor([sample["input_ids"] for sample in bert_details])
-            bert_sentence_types = torch.LongTensor([sample["token_type_ids"] for sample in bert_details])
-            bert_sentence_att_mask = torch.LongTensor([sample["attention_mask"] for sample in bert_details])
+            bert_sentences = torch.tensor([sample["input_ids"] for sample in bert_details], dtype=torch.int32)
+            bert_sentence_types = torch.tensor([sample["token_type_ids"] for sample in bert_details], dtype=torch.int32)
+            bert_sentence_att_mask = torch.tensor([sample["attention_mask"] for sample in bert_details], dtype=torch.int32)
         elif config.text_encoder == 'roberta':
             text_list = []
             for sample in batch:
@@ -147,9 +154,9 @@ def get_loader(config, shuffle=True):
             encoded_bert_sent = roberta_tokenizer(text_list, padding=True, truncation=True,
                                             max_length=roberta_tokenizer.model_max_length, return_tensors="pt")
 
-            bert_sentences = torch.tensor(encoded_bert_sent["input_ids"], dtype=torch.long)
+            bert_sentences = encoded_bert_sent["input_ids"].to(torch.int)
             bert_sentence_types = bert_sentences
-            bert_sentence_att_mask = torch.tensor(encoded_bert_sent["attention_mask"], dtype=torch.long)
+            bert_sentence_att_mask = encoded_bert_sent["attention_mask"].to(torch.int)
         elif config.text_encoder == 'deberta':
             text_list = []
             for sample in batch:
@@ -158,14 +165,107 @@ def get_loader(config, shuffle=True):
             encoded_bert_sent = deberta_tokenizer(text_list, padding=True, truncation=True,
                                             max_length=roberta_tokenizer.model_max_length, return_tensors="pt")
 
-            bert_sentences = torch.tensor(encoded_bert_sent["input_ids"], dtype=torch.long)
+            bert_sentences = encoded_bert_sent["input_ids"].to(torch.int)
             bert_sentence_types = bert_sentences
-            bert_sentence_att_mask = torch.tensor(encoded_bert_sent["attention_mask"], dtype=torch.long)
+            bert_sentence_att_mask = encoded_bert_sent["attention_mask"].to(torch.int)
+        
+        # get raw audio
+        audio_list = []
+        if "mosi" in str(config.data_dir).lower():
+            for sample in batch:
+                segment = sample[2]
+                pattern = re.compile('(.*)\[.*\]')
+                vid = re.search(pattern, segment).group(1)
+                idx = str(int(segment.replace(vid, '')[1:-1])+1)
+                if vid in train_split:
+                    split = 'train'
+                elif vid in dev_split:
+                    split = 'val'
+                elif vid in test_split:
+                    split = 'test'
+                audio = wavfile.read(os.path.join(f'{PROJECT_DIR}/datasets/MOSI/audio', split, vid+'_'+idx+'.wav'))[1]
+                audio_norm = audio / 2**15
+                audio_list.append(audio_norm)
+        elif "mosei" in str(config.data_dir).lower():
+            for sample in batch:
+                segment = sample[2]
+                pattern = re.compile('(.*)\[.*\]')
+                vid = re.search(pattern, segment).group(1)
+                if vid in train_split:
+                    split = 'train'
+                elif vid in dev_split:
+                    split = 'val'
+                elif vid in test_split:
+                    split = 'test'
+                idx = int(segment.replace(vid, '')[1:-1])
+                file_list = sorted(os.listdir(os.path.join(f'{PROJECT_DIR}/datasets/MOSEI/audio', split, vid)))
+                audio = wavfile.read(os.path.join(f'{PROJECT_DIR}/datasets/MOSEI/audio', split, vid, file_list[idx]))[1]
+                audio_norm = audio / 2**15
+                audio_list.append(audio_norm)
+
+        feature_extractor = Wav2Vec2FeatureExtractor.from_pretrained("superb/hubert-base-superb-er")
+        inputs = feature_extractor(audio_list, sampling_rate=16000, padding=True, return_tensors="pt")
+        
+        hubert_feats = inputs["input_values"].to(torch.float32)
+        hubert_feats_att_mask = inputs["attention_mask"].to(torch.int)
+
+        # get hubert embeddings
+        hubert_embedding_list = []
+        hubert_embedding_all_list = []
+        if "mosi" in str(config.data_dir).lower():
+            for sample in batch:
+                segment = sample[2]
+                pattern = re.compile('(.*)\[.*\]')
+                vid = re.search(pattern, segment).group(1)
+                idx = str(int(segment.replace(vid, '')[1:-1])+1)
+                if vid in train_split:
+                    split = 'train'
+                elif vid in dev_split:
+                    split = 'val'
+                elif vid in test_split:
+                    split = 'test'
+                path = os.path.join(f'{PROJECT_DIR}/datasets/MOSI/audio/hubert', split, vid+'_'+idx+'.pt')
+                all_path = os.path.join(f'{PROJECT_DIR}/datasets/MOSI/audio/hubert_all', split, vid+'_'+idx+'.pt')
+
+                hubert_embedding = torch.load(path)
+                hubert_embedding_all = torch.load(all_path)
+                
+                hubert_embedding_list.append(hubert_embedding)
+                hubert_embedding_all_list.append(hubert_embedding_all.squeeze(dim=0))
+
+        elif "mosei" in str(config.data_dir).lower():
+            for sample in batch:
+                segment = sample[2]
+                pattern = re.compile('(.*)\[.*\]')
+                vid = re.search(pattern, segment).group(1)
+                if vid in train_split:
+                    split = 'train'
+                elif vid in dev_split:
+                    split = 'val'
+                elif vid in test_split:
+                    split = 'test'
+                idx = int(segment.replace(vid, '')[1:-1])
+                file_list = sorted(os.listdir(os.path.join(f'{PROJECT_DIR}/datasets/MOSEI/audio/hubert', split, vid)))
+                file_list_all = sorted(os.listdir(os.path.join(f'{PROJECT_DIR}/datasets/MOSEI/audio/hubert_all', split, vid)))
+                path = os.path.join(f'{PROJECT_DIR}/datasets/MOSEI/audio/hubert', split, vid, file_list[idx])
+                all_path = os.path.join(f'{PROJECT_DIR}/datasets/MOSEI/audio/hubert_all', split, vid, file_list_all[idx])
+                hubert_embedding = torch.load(path)
+                hubert_embedding_all = torch.load(all_path)
+                hubert_embedding_list.append(hubert_embedding)
+                hubert_embedding_all_list.append(hubert_embedding_all.squeeze(dim=0))
+
+        hubert_embeddings = torch.cat(hubert_embedding_list, dim=0).detach()
+        hubert_embeddings_all = pad_sequence(hubert_embedding_all_list).detach().permute(1,0,2)
 
         # lengths are useful later in using RNNs
-        lengths = torch.tensor([sample[0][0].shape[0] for sample in batch], dtype=torch.long)
+        lengths = torch.tensor([sample[0][0].shape[0] for sample in batch], dtype=torch.int32)
 
-        return sentences, visual, acoustic, labels, lengths, bert_sentences, bert_sentence_types, bert_sentence_att_mask
+        # batch first for distributed training
+        sentences = torch.permute(sentences, (1,0))
+        visual = torch.permute(visual, (1,0,2))
+        acoustic = torch.permute(acoustic, (1,0,2))
+
+        return sentences, visual, acoustic, labels, lengths, bert_sentences, bert_sentence_types, bert_sentence_att_mask, hubert_feats, hubert_feats_att_mask, hubert_embeddings, hubert_embeddings_all
 
     data_loader = DataLoader(
         dataset=dataset,

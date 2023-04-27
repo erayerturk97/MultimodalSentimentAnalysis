@@ -78,6 +78,7 @@ def get_config(parse=True, **optional_kwargs):
 
     # Text encoder
     parser.add_argument('--text_encoder', type=str, default='roberta')
+    parser.add_argument('--audio_encoder', type=str, default='hubert', help='Text encoder, choose from glove, bert, deberta and roberta')
     parser.add_argument('--use_cmd_sim', type=str2bool, default=True)
 
     # Train
@@ -112,6 +113,10 @@ def get_config(parse=True, **optional_kwargs):
 
     # Data
     parser.add_argument('--data', type=str, default='mosi')
+    
+    parser.add_argument('--add_noise', required=False, default=False, action='store_true', help='Adds noise to representations')
+    parser.add_argument('--noise_cov_scale', type=float, default=1, help='Noise covariance added to the representations')
+    parser.add_argument('--add_noise_batch_per', type=float, default=0.3, help='Percentage of test batches which noise will be added')
 
     # Parse arguments
     if parse:

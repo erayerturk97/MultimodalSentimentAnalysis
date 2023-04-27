@@ -115,7 +115,7 @@ class Solver(object):
                 train_loss = []
                 for batch in self.train_data_loader:
                     self.model.zero_grad()
-                    t, v, a, y, l, bert_sent, bert_sent_type, bert_sent_mask = batch
+                    t, v, a, y, l, bert_sent, bert_sent_type, bert_sent_mask, hubert_feats, hubert_feats_att_mask, hubert_embeddings = batch
 
                     batch_size = t.size(0)
                     t = to_gpu(t, on_cpu=not cuda)
@@ -126,8 +126,11 @@ class Solver(object):
                     bert_sent = to_gpu(bert_sent, on_cpu=not cuda)
                     bert_sent_type = to_gpu(bert_sent_type, on_cpu=not cuda)
                     bert_sent_mask = to_gpu(bert_sent_mask, on_cpu=not cuda)
+                    hubert_feats = to_gpu(hubert_feats, on_cpu=not cuda)
+                    hubert_feats_att_mask = to_gpu(hubert_feats_att_mask, on_cpu=not cuda)
+                    hubert_embeddings = to_gpu(hubert_embeddings, on_cpu=not cuda)
 
-                    y_tilde, _ = self.model(t, v, a, l, bert_sent, bert_sent_type, bert_sent_mask)
+                    y_tilde, _ = self.model(t, v, a, l, bert_sent, bert_sent_type, bert_sent_mask, hubert_feats, hubert_feats_att_mask, hubert_embeddings)
                     
                     if self.train_config.data == "ur_funny":
                         y = y.squeeze()
@@ -184,14 +187,21 @@ class Solver(object):
             dataloader = self.test_data_loader
 
             if to_print:
+                file_list = os.listdir(f'{self.train_config.save_dir}/checkpoints/{self.train_config.model}')
+                for file in file_list:
+                    if 'model' in file:
+                        break
                 self.model.load_state_dict(torch.load(
-                                                    f'{self.train_config.save_dir}/checkpoints/{self.train_config.model}/model_{self.train_config.name}.std'))
+                                                    f'{self.train_config.save_dir}/checkpoints/{self.train_config.model}/{file}'))
+
+                # self.model.load_state_dict(torch.load(
+                #                                     f'{self.train_config.save_dir}/checkpoints/{self.train_config.model}/model_{self.train_config.name}.std'))
                 
                                                         
         with torch.no_grad():
             for batch in dataloader:
                 self.model.zero_grad()
-                t, v, a, y, l, bert_sent, bert_sent_type, bert_sent_mask = batch
+                t, v, a, y, l, bert_sent, bert_sent_type, bert_sent_mask, hubert_feats, hubert_feats_att_mask, hubert_embeddings = batch
 
                 t = to_gpu(t, on_cpu=not cuda)
                 v = to_gpu(v, on_cpu=not cuda)
@@ -201,8 +211,11 @@ class Solver(object):
                 bert_sent = to_gpu(bert_sent, on_cpu=not cuda)
                 bert_sent_type = to_gpu(bert_sent_type, on_cpu=not cuda)
                 bert_sent_mask = to_gpu(bert_sent_mask, on_cpu=not cuda)
+                hubert_feats = to_gpu(hubert_feats, on_cpu=not cuda)
+                hubert_feats_att_mask = to_gpu(hubert_feats_att_mask, on_cpu=not cuda)
+                hubert_embeddings = to_gpu(hubert_embeddings, on_cpu=not cuda)
 
-                y_tilde, _ = self.model(t, v, a, l, bert_sent, bert_sent_type, bert_sent_mask)
+                y_tilde, _ = self.model(t, v, a, l, bert_sent, bert_sent_type, bert_sent_mask, hubert_feats, hubert_feats_att_mask, hubert_embeddings)
 
                 if self.train_config.data == "ur_funny":
                     y = y.squeeze()

@@ -6,11 +6,12 @@
 : "${MEM:=32GB}"
 
 : "${env_dir:=/scratch1/eerturk/envs/venv_535_project/bin/activate}"
-: "${log_dir:=/scratch2/eerturk/CSCI535/Project/myMISA/logs}"
+: "${log_dir:=/scratch2/eerturk/CSCI535/Project/MultimodalSentimentAnalysis/myMISA/logs}"
 : "${log_file:=log.txt}"
-: "${code_dir:=/scratch2/eerturk/CSCI535/Project/myMISA/src}"
+: "${code_dir:=/scratch2/eerturk/CSCI535/Project/MultimodalSentimentAnalysis/myMISA/src}"
 : "${text_encoder:=bert}"
 : "${data:=mosi}"
+: "${audio_encoder:=rnn}"
 
 # For discovery
 module purge
@@ -25,4 +26,4 @@ export MPLCONFIGDIR=/scratch2/eerturk/python-cache/mpl-cache
 export GIT_PYTHON_REFRESH=quiet
 
 cd $code_dir
-python3 -u train.py --text_encoder ${text_encoder} --data ${data}| tee -a ${log_dir}/${log_file}
+python3 -u train.py --text_encoder ${text_encoder} --data ${data} --audio_encoder ${audio_encoder}| tee -a ${log_dir}/${log_file}

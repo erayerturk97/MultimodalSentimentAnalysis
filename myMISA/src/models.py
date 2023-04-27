@@ -6,7 +6,7 @@ import torch.nn as nn
 from torch.autograd import Function
 from torch.nn.utils.rnn import pad_sequence, pack_padded_sequence, pad_packed_sequence
 
-from transformers import AutoModel, AutoConfig
+from transformers import AutoModel, AutoConfig #, HubertModel, HubertConfig, HubertForSequenceClassification
 
 from utils import to_gpu
 from utils import ReverseLayerF
@@ -45,8 +45,8 @@ class MISA(nn.Module):
 
         if self.config.text_encoder == 'glove':
             self.embed = nn.Embedding(len(config.word2id), input_sizes[0])
-            self.trnn1 = rnn(input_sizes[0], hidden_sizes[0], bidirectional=True)
-            self.trnn2 = rnn(2*hidden_sizes[0], hidden_sizes[0], bidirectional=True)
+            self.trnn1 = rnn(input_sizes[0], hidden_sizes[0], bidirectional=True, batch_first=True)
+            self.trnn2 = rnn(2*hidden_sizes[0], hidden_sizes[0], bidirectional=True, batch_first=True)
         elif self.config.text_encoder == 'bert':
             # Initializing a BERT bert-base-uncased style configuration
             bertconfig = AutoConfig.from_pretrained('bert-base-uncased', output_hidden_states=True)
@@ -58,11 +58,16 @@ class MISA(nn.Module):
             bertconfig = AutoConfig.from_pretrained('microsoft/deberta-v3-large', output_hidden_states=True)
             self.bertmodel = AutoModel.from_pretrained('microsoft/deberta-v3-large', config=bertconfig)
 
-        self.vrnn1 = rnn(input_sizes[1], hidden_sizes[1], bidirectional=True)
-        self.vrnn2 = rnn(2*hidden_sizes[1], hidden_sizes[1], bidirectional=True)
+        self.vrnn1 = rnn(input_sizes[1], hidden_sizes[1], bidirectional=True, batch_first=True)
+        self.vrnn2 = rnn(2*hidden_sizes[1], hidden_sizes[1], bidirectional=True, batch_first=True)
         
-        self.arnn1 = rnn(input_sizes[2], hidden_sizes[2], bidirectional=True)
-        self.arnn2 = rnn(2*hidden_sizes[2], hidden_sizes[2], bidirectional=True)
+        # if self.config.audio_encoder == 'hubert':
+        #     self.hubert = HubertForSequenceClassification.from_pretrained("superb/hubert-base-superb-er")
+        #     self.hubert.config.mask_time_length = 2 # raises error for embeddings of short audio 
+        # else:
+        if self.config.audio_encoder != 'hubert':
+            self.arnn1 = rnn(input_sizes[2], hidden_sizes[2], bidirectional=True, batch_first=True)
+            self.arnn2 = rnn(2*hidden_sizes[2], hidden_sizes[2], bidirectional=True, batch_first=True)
 
         ##########################################
         # mapping modalities to same sized space
@@ -89,7 +94,10 @@ class MISA(nn.Module):
         self.project_v.add_module('project_v_layer_norm', nn.LayerNorm(config.hidden_size))
 
         self.project_a = nn.Sequential()
-        self.project_a.add_module('project_a', nn.Linear(in_features=hidden_sizes[2]*4, out_features=config.hidden_size))
+        if self.config.audio_encoder == 'hubert':
+            self.project_a.add_module('project_a', nn.Linear(in_features=768, out_features=config.hidden_size))
+        else:
+            self.project_a.add_module('project_a', nn.Linear(in_features=hidden_sizes[2]*4, out_features=config.hidden_size))
         self.project_a.add_module('project_a_activation', self.activation)
         self.project_a.add_module('project_a_layer_norm', nn.LayerNorm(config.hidden_size))
 
@@ -156,16 +164,17 @@ class MISA(nn.Module):
         self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=1)
 
     def extract_features(self, sequence, lengths, rnn1, rnn2, layer_norm):
-        packed_sequence = pack_padded_sequence(sequence, lengths.cpu())
+        sequence = torch.permute(sequence, (1, 0, 2))
+        packed_sequence = pack_padded_sequence(sequence, lengths.cpu(), batch_first=True)
 
         if self.config.rnncell == 'lstm':
             packed_h1, (final_h1, _) = rnn1(packed_sequence)
         else:
             packed_h1, final_h1 = rnn1(packed_sequence)
 
-        padded_h1, _ = pad_packed_sequence(packed_h1)
+        padded_h1, _ = pad_packed_sequence(packed_h1, batch_first=True, total_length=sequence.shape[1])
         normed_h1 = layer_norm(padded_h1)
-        packed_normed_h1 = pack_padded_sequence(normed_h1, lengths.cpu())
+        packed_normed_h1 = pack_padded_sequence(normed_h1, lengths.cpu(), batch_first=True)
 
         if self.config.rnncell == 'lstm':
             _, (final_h2, _) = rnn2(packed_normed_h1)
@@ -174,7 +183,7 @@ class MISA(nn.Module):
 
         return final_h1, final_h2
 
-    def alignment(self, sentences, visual, acoustic, lengths, bert_sent, bert_sent_type, bert_sent_mask, add_noise=False):
+    def alignment(self, sentences, visual, acoustic, lengths, bert_sent, bert_sent_type, bert_sent_mask, hubert_feats=None, hubert_feats_att_mask=None, hubert_embeddings=None, add_noise=False):
         batch_size = lengths.size(0)
         if self.config.text_encoder == 'glove':
             # extract features from text modality
@@ -205,8 +214,11 @@ class MISA(nn.Module):
         utterance_video = torch.cat((final_h1v, final_h2v), dim=2).permute(1, 0, 2).contiguous().view(batch_size, -1)
 
         # extract features from acoustic modality
-        final_h1a, final_h2a = self.extract_features(acoustic, lengths, self.arnn1, self.arnn2, self.alayer_norm)
-        utterance_audio = torch.cat((final_h1a, final_h2a), dim=2).permute(1, 0, 2).contiguous().view(batch_size, -1)
+        if self.config.audio_encoder == 'hubert':
+            utterance_audio = hubert_embeddings
+        else:
+            final_h1a, final_h2a = self.extract_features(acoustic, lengths, self.arnn1, self.arnn2, self.alayer_norm)
+            utterance_audio = torch.cat((final_h1a, final_h2a), dim=2).permute(1, 0, 2).contiguous().view(batch_size, -1)
 
         if add_noise:
             utterance_text += torch.normal(mean=0, std=self.config.noise_cov_scale, size=utterance_text.shape)
@@ -270,7 +282,13 @@ class MISA(nn.Module):
         self.utt_shared_v = self.shared(utterance_v)
         self.utt_shared_a = self.shared(utterance_a)
 
-    def forward(self, sentences, video, acoustic, lengths, bert_sent, bert_sent_type, bert_sent_mask, add_noise=False):
+    def forward(self, sentences, video, acoustic, lengths, bert_sent, bert_sent_type, bert_sent_mask, hubert_feats=None, hubert_feats_att_mask=None, hubert_embeddings=None, add_noise=False):
         batch_size = lengths.size(0)
-        o = self.alignment(sentences, video, acoustic, lengths, bert_sent, bert_sent_type, bert_sent_mask)
-        return o
+
+        # time first 
+        sentences = torch.permute(sentences, (1,0))
+        video = torch.permute(video, (1,0,2))
+        acoustic = torch.permute(acoustic, (1,0,2))
+
+        o = self.alignment(sentences, video, acoustic, lengths, bert_sent, bert_sent_type, bert_sent_mask, hubert_feats, hubert_feats_att_mask, hubert_embeddings)
+        return o 

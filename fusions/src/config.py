@@ -8,9 +8,9 @@ from datetime import datetime
 from collections import defaultdict
 
 if 'win' in sys.platform:
-    PROJECT_DIR = 'C:/Users/Eray/Desktop/Courses/CSCI535/Project' 
+    PROJECT_DIR = 'C:/Users/Eray/Desktop/Courses/CSCI535/Project/MultimodalSentimentAnalysis' 
 else:
-    PROJECT_DIR = '/scratch2/eerturk/CSCI535/Project'
+    PROJECT_DIR = '/scratch2/eerturk/CSCI535/Project/MultimodalSentimentAnalysis'
 
 # path to a pretrained word embedding file
 word_emb_path = f'{PROJECT_DIR}/datasets/glove.840B.300d.txt'
@@ -77,6 +77,7 @@ def get_config(parse=True, **optional_kwargs):
 
     # Text encoder
     parser.add_argument('--text_encoder', type=str, default='roberta')
+    parser.add_argument('--audio_encoder', type=str, default='hubert')
 
     # Train
     time_now = datetime.now().strftime('%Y_%m_%d__%H_%M_%S')
@@ -103,7 +104,7 @@ def get_config(parse=True, **optional_kwargs):
 
     # Model
     parser.add_argument('--model', type=str,
-                        default='TextClassifier', help='one of {MISA, }')
+                        default='TextClassifier', help='one of {TextClassifier, AcousticClassifier, VisualClassifier, EarlyFusion and LateFusion}')
 
     # Data
     parser.add_argument('--data', type=str, default='mosi')
@@ -117,10 +118,10 @@ def get_config(parse=True, **optional_kwargs):
     print(kwargs.data)
     if kwargs.data == "mosi":
         kwargs.num_classes = 1
-        kwargs.batch_size = 32
+        kwargs.batch_size = 64
     elif kwargs.data == "mosei":
         kwargs.num_classes = 1
-        kwargs.batch_size = 16
+        kwargs.batch_size = 64
     else:
         print("No dataset mentioned")
         exit()
