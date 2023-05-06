@@ -61,13 +61,17 @@ def get_args():
                         help='number of layers in LSTM encoders (default: 1)')
     parser.add_argument('--cpc_layers', type=int, default=1,
                         help='number of layers in CPC NCE estimator (default: 1)')
-    parser.add_argument('--d_vh', type=int, default=16,
+    parser.add_argument('--d_th', type=int, default=128,
+                        help='hidden size in text rnn')
+    parser.add_argument('--d_vh', type=int, default=128,
                         help='hidden size in visual rnn')
-    parser.add_argument('--d_ah', type=int, default=16,
+    parser.add_argument('--d_ah', type=int, default=128,
                         help='hidden size in acoustic rnn')
-    parser.add_argument('--d_vout', type=int, default=16,
+    parser.add_argument('--d_tout', type=int, default=64,
+                        help='output size in text rnn')
+    parser.add_argument('--d_vout', type=int, default=64,
                         help='output size in visual rnn')
-    parser.add_argument('--d_aout', type=int, default=16,
+    parser.add_argument('--d_aout', type=int, default=64,
                         help='output size in acoustic rnn')
     parser.add_argument('--bidirectional', action='store_true', help='Whether to use bidirectional rnn')
     parser.add_argument('--d_prjh', type=int, default=128,
@@ -75,7 +79,8 @@ def get_args():
     parser.add_argument('--bert_model', type=str, default='bert')
     parser.add_argument('--fusion', type=str, default='none')
     parser.add_argument('--text_encoder', type=str, default='bert', help='Text encoder, choose from glove, bert, deberta and roberta')
-
+    parser.add_argument('--audio_encoder', type=str, default='rnn', help=' hubert, rnn, ')
+    parser.add_argument('--text_rnn_type', type=str, default='lstm', help='gru, lstm')
 
     # Activations
     parser.add_argument('--mmilb_mid_activation', type=str, default='ReLU',

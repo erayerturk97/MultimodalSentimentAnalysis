@@ -10,6 +10,7 @@
 : "${log_file:=log.txt}"
 : "${code_dir:=/scratch1/yciftci/cs535project/myMMIM/src}"
 : "${text_encoder:=bert}"
+: "${audio_encoder:=rnn}"
 : "${data:=mosi}"
 : "${fusion:=none}"
 
@@ -27,4 +28,4 @@ export MPLCONFIGDIR=/scratch1/yciftci/python-cache/mpl-cache
 export GIT_PYTHON_REFRESH=quiet
 
 cd $code_dir
-python3 -u main.py --text_encoder ${text_encoder} --dataset ${data} --fusion ${fusion}| tee -a ${log_dir}/${log_file}
+python3 -u main.py --text_encoder ${text_encoder} --dataset ${data} --fusion ${fusion} --audio_encoder ${audio_encoder} | tee -a ${log_dir}/${log_file}

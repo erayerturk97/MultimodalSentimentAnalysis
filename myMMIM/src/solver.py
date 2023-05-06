@@ -128,7 +128,7 @@ class Solver(object):
                 mem_neg_va = []
 
             for i_batch, batch_data in enumerate(self.train_loader):
-                text, visual, vlens, audio, alens, y, l, bert_sent, bert_sent_type, bert_sent_mask, ids = batch_data
+                text, visual, vlens, audio, alens, y, l, bert_sent, bert_sent_type, bert_sent_mask, ids, hubert_feats, hubert_feats_att_mask, hubert_embeddings = batch_data
 
                 # for mosei we only use 50% dataset in stage 1
                 if self.hp.dataset == "mosei":
@@ -137,9 +137,9 @@ class Solver(object):
                 model.zero_grad()
                 if torch.cuda.is_available() and self.use_cuda:
                     with torch.cuda.device(0):
-                        text, visual, audio, y, l, bert_sent, bert_sent_type, bert_sent_mask = \
+                        text, visual, audio, y, l, bert_sent, bert_sent_type, bert_sent_mask, hubert_feats, hubert_feats_att_mask, hubert_embeddings= \
                         text.cuda(), visual.cuda(), audio.cuda(), y.cuda(), l.cuda(), bert_sent.cuda(), \
-                        bert_sent_type.cuda(), bert_sent_mask.cuda()
+                        bert_sent_type.cuda(), bert_sent_mask.cuda(), hubert_feats.cuda(), hubert_feats_att_mask.cuda(), hubert_embeddings.cuda()
                 if self.hp.dataset=="ur_funny":
                     y = y.squeeze()
                 
@@ -156,7 +156,7 @@ class Solver(object):
                     mem = {'tv': None, 'ta': None, 'va': None}
 
                 lld, nce, preds, pn_dic, H = model(text, visual, audio, vlens, alens, 
-                                                bert_sent, bert_sent_type, bert_sent_mask, y, mem)
+                                                bert_sent, bert_sent_type, bert_sent_mask, y, mem, lengths = l, hubert_feats=hubert_feats, hubert_feats_att_mask=hubert_feats_att_mask, hubert_embeddings=hubert_embeddings)
 
                 if stage == 1:
                     y_loss = criterion(preds, y)
@@ -234,18 +234,19 @@ class Solver(object):
 
             with torch.no_grad():
                 for batch in loader:
-                    text, vision, vlens, audio, alens, y, lengths, bert_sent, bert_sent_type, bert_sent_mask, ids = batch
+                    text, vision, vlens, audio, alens, y, lengths, bert_sent, bert_sent_type, bert_sent_mask, ids, hubert_feats, hubert_feats_att_mask, hubert_embeddings = batch
 
                     if torch.cuda.is_available() and self.use_cuda:
                         with torch.cuda.device(0):
                             text, audio, vision, y = text.cuda(), audio.cuda(), vision.cuda(), y.cuda()
                             lengths = lengths.cuda()
                             bert_sent, bert_sent_type, bert_sent_mask = bert_sent.cuda(), bert_sent_type.cuda(), bert_sent_mask.cuda()
+                            hubert_feats, hubert_feats_att_mask, hubert_embeddings = hubert_feats.cuda(), hubert_feats_att_mask.cuda(), hubert_embeddings.cuda()
 
                     batch_size = lengths.size(0) # bert_sent in size (bs, seq_len, emb_size)
 
                     # we don't need lld and bound anymore
-                    _, _, preds, _, _ = model(text, vision, audio, vlens, alens, bert_sent, bert_sent_type, bert_sent_mask)
+                    _, _, preds, _, _ = model(text, vision, audio, vlens, alens, bert_sent, bert_sent_type, bert_sent_mask, lengths=lengths, hubert_feats=hubert_feats, hubert_feats_att_mask=hubert_feats_att_mask, hubert_embeddings=hubert_embeddings)
 
                     if self.hp.dataset in ['mosi', 'mosei', 'mosei_senti'] and test:
                         criterion = nn.L1Loss()
@@ -332,16 +333,17 @@ class Solver(object):
         truths = []
         with torch.no_grad():
             for batch in loader:
-                text, vision, vlens, audio, alens, y, lengths, bert_sent, bert_sent_type, bert_sent_mask, ids = batch
+                text, vision, vlens, audio, alens, y, lengths, bert_sent, bert_sent_type, bert_sent_mask, ids, hubert_feats, hubert_feats_att_mask, hubert_embeddings = batch #TODO
 
                 if torch.cuda.is_available() and self.use_cuda:
                     with torch.cuda.device(0):
                         text, audio, vision, y = text.cuda(), audio.cuda(), vision.cuda(), y.cuda()
                         lengths = lengths.cuda()
                         bert_sent, bert_sent_type, bert_sent_mask = bert_sent.cuda(), bert_sent_type.cuda(), bert_sent_mask.cuda()
+                        hubert_feats, hubert_feats_att_mask, hubert_embeddings = hubert_feats.cuda(), hubert_feats_att_mask.cuda(), hubert_embeddings.cuda()
 
 
-                _, _, preds, _, _ = model(text, vision, audio, vlens, alens, bert_sent, bert_sent_type, bert_sent_mask)
+                _, _, preds, _, _ = model(text, vision, audio, vlens, alens, bert_sent, bert_sent_type, bert_sent_mask, lengths= lengths, hubert_feats=hubert_feats, hubert_feats_att_mask=hubert_feats_att_mask, hubert_embeddings=hubert_embeddings)
 
                 results.append(preds)
                 truths.append(y)

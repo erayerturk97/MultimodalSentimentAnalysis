@@ -9,12 +9,17 @@ from transformers import AutoModel, AutoConfig
 def add_noise(x, intens=1e-7):
     return x + torch.rand(x.size()) * intens
 
+
+
+
 class LanguageEmbeddingLayer(nn.Module):
     """Embed input text with "glove" or "Bert"
     """
     def __init__(self, hp):
         super(LanguageEmbeddingLayer, self).__init__()
+        
         self.hp = hp
+        rnn = nn.LSTM if self.hp.text_rnn_type == 'lstm' else nn.GRU
         if self.hp.bert_model == "bert":
             bertconfig = AutoConfig.from_pretrained("bert-base-uncased", output_hidden_states=True)
             self.bertmodel = AutoModel.from_pretrained("bert-base-uncased", config=bertconfig)
@@ -24,17 +29,94 @@ class LanguageEmbeddingLayer(nn.Module):
         elif self.hp.bert_model == "deberta":
             bertconfig = AutoConfig.from_pretrained("microsoft/deberta-v3-large", output_hidden_states=True)
             self.bertmodel = AutoModel.from_pretrained("microsoft/deberta-v3-large", config=bertconfig)
+        elif self.hp.bert_model == 'glove':
+            self.embed = nn.Embedding(len(hp.word2id), hp.d_tin)
+            self.trnn1 = rnn(hp.d_tin, hp.d_th, bidirectional=True, batch_first=True)
+            self.trnn2 = rnn(2*hp.d_th, hp.d_th, bidirectional=True, batch_first=True)
+        self.tlayer_norm = nn.LayerNorm((hp.d_th*2,))
 
-    def forward(self, sentences, bert_sent, bert_sent_type, bert_sent_mask):
+    def extract_features(self, sequence, lengths, rnn1, rnn2, layer_norm):
+        sequence = torch.permute(sequence, (1, 0, 2))
+        packed_sequence = pack_padded_sequence(sequence, lengths.cpu(), batch_first=True)
+
+        if self.hp.text_rnn_type == 'lstm':
+            packed_h1, (final_h1, _) = rnn1(packed_sequence)
+        else:
+            packed_h1, final_h1 = rnn1(packed_sequence)
+
+        padded_h1, _ = pad_packed_sequence(packed_h1, batch_first=True, total_length=sequence.shape[1])
+        normed_h1 = layer_norm(padded_h1)
+        packed_normed_h1 = pack_padded_sequence(normed_h1, lengths.cpu(), batch_first=True)
+
+        if self.hp.text_rnn_type == 'lstm':
+            _, (final_h2, _) = rnn2(packed_normed_h1)
+        else:
+            _, final_h2 = rnn2(packed_normed_h1)
+
+        return final_h1, final_h2
+    
+
+    def forward(self, sentences, bert_sent, bert_sent_type, bert_sent_mask, lengths):
+        
         if self.hp.bert_model == 'bert':
             bert_output = self.bertmodel(input_ids=bert_sent,
-                                         attention_mask=bert_sent_mask,
-                                         token_type_ids=bert_sent_type)
+                                            attention_mask=bert_sent_mask,
+                                            token_type_ids=bert_sent_type)
+            bert_output = bert_output[0]
+            # masked mean
+            masked_output = torch.mul(bert_sent_mask.unsqueeze(2), bert_output)
+            mask_len = torch.sum(bert_sent_mask, dim=1, keepdim=True)  
+            bert_output = torch.sum(masked_output, dim=1, keepdim=False) / mask_len
+        elif self.hp.bert_model == 'roberta':
+            bert_output = self.bertmodel(input_ids=bert_sent,
+                                            attention_mask=bert_sent_mask)
+            bert_output = bert_output[0]
+            # masked mean
+            masked_output = torch.mul(bert_sent_mask.unsqueeze(2), bert_output)
+            mask_len = torch.sum(bert_sent_mask, dim=1, keepdim=True)  
+            bert_output = torch.sum(masked_output, dim=1, keepdim=False) / mask_len
+        elif self.hp.bert_model == 'deberta':
+            bert_output = self.bertmodel(input_ids=bert_sent,
+                                            attention_mask=bert_sent_mask)
+            bert_output = bert_output[0]
+            # masked mean
+            masked_output = torch.mul(bert_sent_mask.unsqueeze(2), bert_output)
+            mask_len = torch.sum(bert_sent_mask, dim=1, keepdim=True)  
+            bert_output = torch.sum(masked_output, dim=1, keepdim=False) / mask_len
+        elif self.hp.bert_model == 'glove':
+            # extract features from text modality
+            sentences = self.embed(sentences)
+            final_h1t, final_h2t = self.extract_features(sentences, lengths, self.trnn1, self.trnn2, self.tlayer_norm)
+            bert_output = torch.cat((final_h1t, final_h2t), dim=2).permute(1, 0, 2).contiguous().view(lengths.size(0), -1)
         else:
             bert_output = self.bertmodel(input_ids=bert_sent,
                                          attention_mask=bert_sent_mask)
-        bert_output = bert_output[0]
+            bert_output = bert_output[0]
+            # masked mean
+            masked_output = torch.mul(bert_sent_mask.unsqueeze(2), bert_output)
+            mask_len = torch.sum(bert_sent_mask, dim=1, keepdim=True)  
+            bert_output = torch.sum(masked_output, dim=1, keepdim=False) / mask_len
+        
         return bert_output   # return head (sequence representation)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 class SubNet(nn.Module):
     '''

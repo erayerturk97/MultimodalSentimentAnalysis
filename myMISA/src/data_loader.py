@@ -183,7 +183,7 @@ def get_loader(config, shuffle=True):
         feature_extractor = Wav2Vec2FeatureExtractor.from_pretrained("superb/hubert-base-superb-er")
         inputs = feature_extractor(audio_list, sampling_rate=16000, padding=True, return_tensors="pt")
         
-        hubert_feats = torch.FloatTensor(inputs["input_values"])
+        hubert_feats = torch.tensor(inputs["input_values"])
         hubert_feats_att_mask = inputs["attention_mask"].to(torch.int)
 
         # get hubert embeddings

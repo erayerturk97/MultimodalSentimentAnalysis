@@ -104,15 +104,16 @@ class Solver_GB(object):
         for epoch in range(self.hp.num_gb_epochs):
             for i_batch, batch_data in enumerate(self.tt_loader):
                 model.zero_grad()
-                text, visual, vlens, audio, alens, y, l, bert_sent, bert_sent_type, bert_sent_mask, ids = batch_data
+                text, visual, vlens, audio, alens, y, l, bert_sent, bert_sent_type, bert_sent_mask, ids, hubert_feats, hubert_feats_att_mask, hubert_embeddings = batch_data
                 if torch.cuda.is_available() and self.use_cuda:
                     with torch.cuda.device(0):
                         text, visual, audio, y, l, bert_sent, bert_sent_type, bert_sent_mask = \
                         text.cuda(), visual.cuda(), audio.cuda(), y.cuda(), l.cuda(), bert_sent.cuda(), \
                         bert_sent_type.cuda(), bert_sent_mask.cuda()
+                        hubert_feats, hubert_feats_att_mask, hubert_embeddings = hubert_feats.cuda(), hubert_feats_att_mask.cuda(), hubert_embeddings.cuda()
 
                 preds = model(text, visual, audio, vlens, alens, 
-                            bert_sent, bert_sent_type, bert_sent_mask)
+                            bert_sent, bert_sent_type, bert_sent_mask, lengths=l , hubert_feats=hubert_feats, hubert_feats_att_mask=hubert_feats_att_mask, hubert_embeddings=hubert_embeddings)
                 loss = self.criterion(preds[idx], y)
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(model.parameters(), self.hp.clip)
@@ -158,16 +159,17 @@ class Solver_GB(object):
 
         for i_batch, batch_data in enumerate(self.train_loader):
             model.zero_grad()
-            text, visual, vlens, audio, alens, y, l, bert_sent, bert_sent_type, bert_sent_mask, ids = batch_data
+            text, visual, vlens, audio, alens, y, l, bert_sent, bert_sent_type, bert_sent_mask, ids, hubert_feats, hubert_feats_att_mask, hubert_embeddings = batch_data
 
             text, visual, audio, y, l, bert_sent, bert_sent_type, bert_sent_mask = \
                 text.cuda(), visual.cuda(), audio.cuda(), y.cuda(), l.cuda(), bert_sent.cuda(), \
                 bert_sent_type.cuda(), bert_sent_mask.cuda()
+            hubert_feats, hubert_feats_att_mask, hubert_embeddings = hubert_feats.cuda(), hubert_feats_att_mask.cuda(), hubert_embeddings.cuda()
 
             batch_size = y.size(0)
 
             preds = model(text, visual, audio, vlens, alens, 
-                          bert_sent, bert_sent_type, bert_sent_mask)
+                          bert_sent, bert_sent_type, bert_sent_mask, lengths=l, hubert_feats=hubert_feats, hubert_feats_att_mask=hubert_feats_att_mask, hubert_embeddings=hubert_embeddings)
             if idx == -1:
                 loss_t = criterion(preds[0], y)
                 loss_v = criterion(preds[1], y)
@@ -200,16 +202,17 @@ class Solver_GB(object):
 
         with torch.no_grad():
             for batch in loader:
-                text, vision, vlens, audio, alens, y, lengths, bert_sent, bert_sent_type, bert_sent_mask, ids = batch
+                text, vision, vlens, audio, alens, y, lengths, bert_sent, bert_sent_type, bert_sent_mask, ids, hubert_feats, hubert_feats_att_mask, hubert_embeddings = batch
 
                 with torch.cuda.device(0):
                     text, audio, vision, y = text.cuda(), audio.cuda(), vision.cuda(), y.cuda()
                     lengths = lengths.cuda()
                     bert_sent, bert_sent_type, bert_sent_mask = bert_sent.cuda(), bert_sent_type.cuda(), bert_sent_mask.cuda()
+                    hubert_feats, hubert_feats_att_mask, hubert_embeddings = hubert_feats.cuda(), hubert_feats_att_mask.cuda(), hubert_embeddings.cuda()
 
                 batch_size = lengths.size(0) # bert_sent in size (bs, seq_len, emb_size)
 
-                preds = model(text, vision, audio, vlens, alens, bert_sent, bert_sent_type, bert_sent_mask)
+                preds = model(text, vision, audio, vlens, alens, bert_sent, bert_sent_type, bert_sent_mask, lengths=lengths, hubert_feats=hubert_feats, hubert_feats_att_mask=hubert_feats_att_mask, hubert_embeddings=hubert_embeddings)
                 preds = preds[index]
 
                 if self.hp.dataset in ['mosi', 'mosei', 'mosei_senti'] and test:
@@ -301,18 +304,19 @@ class Solver_GB(object):
         truths = []
         with torch.no_grad():
             for batch in loader:
-                text, vision, vlens, audio, alens, y, lengths, bert_sent, bert_sent_type, bert_sent_mask, ids = batch
+                text, vision, vlens, audio, alens, y, lengths, bert_sent, bert_sent_type, bert_sent_mask, ids, hubert_feats, hubert_feats_att_mask, hubert_embeddings = batch
 
                 with torch.cuda.device(0):
                     text, audio, vision, y = text.cuda(), audio.cuda(), vision.cuda(), y.cuda()
                     lengths = lengths.cuda()
                     bert_sent, bert_sent_type, bert_sent_mask = bert_sent.cuda(), bert_sent_type.cuda(), bert_sent_mask.cuda()
+                    hubert_feats, hubert_feats_att_mask, hubert_embeddings = hubert_feats.cuda(), hubert_feats_att_mask.cuda(), hubert_embeddings.cuda()
 
                 if self.hp.test:
                     vision = torch.randn(vision.shape[0], vision.shape[1], vision.shape[2]).cuda()
                     audio = torch.randn(audio.shape[0], audio.shape[1], audio.shape[2]).cuda()
 
-                preds = model(text, vision, audio, vlens, alens, bert_sent, bert_sent_type, bert_sent_mask)
+                preds = model(text, vision, audio, vlens, alens, bert_sent, bert_sent_type, bert_sent_mask, lengths=lengths, hubert_feats=hubert_feats, hubert_feats_att_mask=hubert_feats_att_mask, hubert_embeddings=hubert_embeddings)
                 preds = preds[index]
 
                 results.append(preds)

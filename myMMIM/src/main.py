@@ -25,13 +25,15 @@ if __name__ == '__main__':
     print('Cuda available:', torch.cuda.is_available())
     args = get_args()
     use_cuda = True
+    print('----------------------', args.audio_encoder)
 
     
     # args.test = True
 
     if "win" in sys.platform:
-        # args.text_encoder = 'roberta'  # glove, bert, deberta and roberta
-        # args.fusion = 'gb'
+        args.text_encoder = 'glove'  # glove, bert, deberta and roberta
+        # args.audio_encoder = 'hubert'
+        args.fusion = 'gb'
         # use_cuda = True
         # args.dataset = 'mosei'
         pass
@@ -42,12 +44,24 @@ if __name__ == '__main__':
     dataset = str.lower(args.dataset.strip())
     args.bert_model = args.text_encoder
     
-    # if dataset == 'mosei' and args.text_encoder == 'deberta':
-    #     args.batch_size = 16
+    if args.audio_encoder == 'hubert':
+        args.d_aout = 768
+    print('----------------------', args.audio_encoder)
+
+    if dataset == 'mosei' and args.text_encoder == 'deberta' and args.audio_encoder == 'rnn':
+        args.batch_size = 20
+
+    if dataset == 'mosei' and args.text_encoder == 'deberta' and args.audio_encoder == 'hubert':
+        args.batch_size = 20
+
+    print('----------------------', args.audio_encoder)
+
+
+
 
     # save dir 
     main_save_dir = f'{project_dir}/r'
-    save_dir = f'{main_save_dir}/{args.dataset}/{args.fusion}/{args.text_encoder}'
+    save_dir = f'{main_save_dir}/{args.dataset}/{args.fusion}/{args.text_encoder}/{args.audio_encoder}'
     args.save_dir = save_dir
 
     print('---------------------------------------')
